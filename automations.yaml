@@ -1,0 +1,66 @@
+alias: Dishwasher scheduler
+description: ""
+trigger:
+  - platform: state
+    entity_id:
+      - input_button.schedule_dishwasher
+    id: schedule
+  - platform: template
+    value_template: >-
+      {% set prices =
+      state_attr('sensor.entsoe_average_electricity_price_today',
+      'prices_today') +
+      state_attr('sensor.entsoe_average_electricity_price_today',
+      'prices_tomorrow') %}
+
+      {% set intervals = 4 %}
+
+      {% set ns = namespace(bestPrice=1, bestTime=None) %}
+
+
+      {% for i in range(prices|length - (intervals - 1)) %}
+          {% set ns2 = namespace(currentPrice=prices[i]["price"]) %}
+          {% for interval in range(intervals) %}
+              {% if interval != 0 %}
+                  {% set ns2.currentPrice = ns2.currentPrice + (prices[i+interval]["price"]) %}
+              {% endif %}
+          {% endfor %}
+          {% set ns2.currentPrice = ns2.currentPrice / intervals %}
+          {% if ns2.currentPrice < ns.bestPrice %}
+              {% set ns.bestPrice = ns2.currentPrice %}
+              {% set ns.bestTime = prices[i]["time"] %}
+          {% endif %}
+      {% endfor %}
+
+      {{ (now().strftime('%d-%m %H:%M') ==
+      (as_timestamp(ns.bestTime)|as_datetime|as_local).strftime('%d-%m %H:%M'))
+      and states('input_boolean.dishwasher_scheduled') == 'on' }}
+    id: run
+condition: []
+action:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - schedule
+        sequence:
+          - service: input_boolean.turn_on
+            metadata: {}
+            data: {}
+            target:
+              entity_id: input_boolean.dishwasher_scheduled
+      - conditions:
+          - condition: trigger
+            id:
+              - run
+        sequence:
+          - service: home_connect.start_program
+            data:
+              device_id: 101bf69fcbe90cea354ba978dde4a572
+              program: Dishcare.Dishwasher.Program.Eco50
+          - service: input_boolean.turn_off
+            metadata: {}
+            data: {}
+            target:
+              entity_id: input_boolean.dishwasher_scheduled
+mode: single
